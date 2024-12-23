@@ -1,0 +1,73 @@
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import re
+import os
+
+def get_company_csr_link(company_name, year, search_engine='google'):
+    """
+    Search for a company's CSR report for a given year using a search engine.
+    """
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    search_query = f"{company_name} {year} CSR report filetype:pdf"
+    
+    if search_engine == 'google':
+        search_url = f"https://www.google.com/search?q={search_query}"
+    elif search_engine == 'bing':
+        search_url = f"https://www.bing.com/search?q={search_query}"
+    else:
+        raise ValueError("Unsupported search engine. Use 'google' or 'bing'.")
+    
+    response = requests.get(search_url, headers=headers)
+    if response.status_code != 200:
+        print(f"Failed to retrieve search results for {company_name}.")
+        return None
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    # Extract links from search results (Google/Bing-specific)
+    links = []
+    if search_engine == 'google':
+        for a_tag in soup.select('a'):
+            href = a_tag.get('href')
+            if href and re.search(r'http[s]?://', href):
+                links.append(href.split('&')[0])
+    elif search_engine == 'bing':
+        for a_tag in soup.select('a[href]'):
+            href = a_tag['href']
+            if re.search(r'http[s]?://', href):
+                links.append(href)
+
+    # Filter links containing CSR and the year
+    for link in links:
+        if str(year) in link and "CSR" in link.upper():
+            return link
+
+    return None
+
+def scrape_csr_reports(input_csv, output_csv, year):
+    """
+    Main function to scrape CSR report links for MSCI companies.
+    """
+    # Load the list of companies
+    companies = pd.read_csv(input_csv)
+    results = []
+
+    for _, row in companies.iterrows():
+        company_name = row['Company Name']
+        print(f"Searching CSR report for: {company_name} ({year})")
+        
+        csr_link = get_company_csr_link(company_name, year)
+        results.append({'Company Name': company_name, 'CSR Link': csr_link})
+
+    # Save results
+    results_df = pd.DataFrame(results)
+    results_df.to_csv(output_csv, index=False)
+    print(f"Saved results to {output_csv}")
+
+if __name__ == "__main__":
+    input_file = 'msci_world_companies.csv'  # CSV with a "Company Name" column
+    output_file = 'csr_reports_links.csv'
+    target_year = 2023
+
+    scrape_csr_reports(input_file, output_file, target_year)
